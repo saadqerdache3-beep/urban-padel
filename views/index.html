@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Urban Padel — Application</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body, #root { height: 100%; margin: 0; padding: 0; }
+    body { font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif; background: #F7F8FA; overflow: hidden; }
+    #root { display: flex; flex-direction: column; }
+    /* Tap highlight supprimé sur mobile */
+    * { -webkit-tap-highlight-color: transparent; }
+    /* Scrollbar desktop */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #C8CDD4; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #9AA3B0; }
+    /* Inputs iOS — évite le zoom auto */
+    input, select, textarea { font-size: 16px !important; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- React 18 + Babel pour transpiler le JSX dans le navigateur -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+
+<!--
+  ORDRE DE CHARGEMENT IMPORTANT :
+  1. Api.jsx       (couche HTTP — doit être disponible AVANT AppStore)
+  2. AppStore.jsx  (utilise Api en interne)
+  3. Components, vues...
+-->
+<script type="text/babel" src="app/Api.jsx"></script>
+<script type="text/babel" src="app/AppStore.jsx"></script>
+<script type="text/babel" src="app/Components.jsx"></script>
+<script type="text/babel" src="app/LandingView.jsx"></script>
+<script type="text/babel" src="app/AuthViews.jsx"></script>
+<script type="text/babel" src="app/BookingView.jsx"></script>
+<script type="text/babel" src="app/ScoreModal.jsx"></script>
+<script type="text/babel" src="app/RatingModal.jsx"></script>
+<script type="text/babel" src="app/PlayerProfileView.jsx"></script>
+<script type="text/babel" src="app/MatchDetailView.jsx"></script>
+<script type="text/babel" src="app/MatchListView.jsx"></script>
+<script type="text/babel" src="app/CreateMatchView.jsx"></script>
+<script type="text/babel" src="app/PassportView.jsx"></script>
+<script type="text/babel" src="app/DashboardView.jsx"></script>
+<script type="text/babel" src="app/AdminDashboard.jsx"></script>
+<script type="text/babel" src="app/AdminSlots.jsx"></script>
+<script type="text/babel" src="app/AdminBookings.jsx"></script>
+<script type="text/babel" src="app/AdminMatches.jsx"></script>
+<script type="text/babel" src="app/AdminUsers.jsx"></script>
+
+<script type="text/babel">
+function App() {
+  const [nav,  setNav]  = React.useState('landing');
+  const [user, setUser] = React.useState(null);
+  const [booting, setBooting] = React.useState(true);
+
+  // ── Au chargement : si un token est en localStorage, on tente
+  //    de le valider auprès du backend (GET /api/auth/me).
+  //    Si ça marche → l'utilisateur est reconnecté automatiquement.
+  React.useEffect(() => {
+    (async () => {
+      const res = await Api.me();
+      if (res.ok && res.user) {
+        setUser(res.user);
+        AppStore.setCurrentUser(res.user);   // sync store dès le départ
+        await AppStore.bootstrap();
+        setNav(res.user.role === 'admin' ? 'admin' : 'dashboard');
+      }
+      setBooting(false);
+    })();
+  }, []);
+
+  // Recharge la liste des utilisateurs quand l'admin entre dans son espace.
+  // Les vues admin (AdminBookings, AdminUsers, AdminMatches…) lisent users
+  // depuis le store ; il faut donc les y mettre.
+  React.useEffect(() => {
+    if (user?.role === 'admin' && nav === 'admin') {
+      AppStore.loadUsers();
+    }
+  }, [user, nav]);
+
+  // Quand le store met à jour currentUser (après une victoire, une notation,
+  // un changement de profil...), on propage la nouvelle valeur dans l'état
+  // local pour que tous les composants qui reçoivent `user` en prop
+  // (Header, Passport, Dashboard, etc.) se rafraîchissent.
+  React.useEffect(() => {
+    return AppStore.subscribe(s => {
+      if (s.currentUser && (!user || s.currentUser.elo !== user.elo
+            || s.currentUser.stats?.played !== user.stats?.played
+            || s.currentUser.ratings?.count !== user.ratings?.count)) {
+        setUser(s.currentUser);
+      }
+    });
+  }, [user]);
+
+  // Navigation protégée — redirige vers login si nécessaire.
+  // Bonus : un admin ne devrait pas se balader sur les pages joueur.
+  const handleNav = (page) => {
+    const PROTECTED = ['booking', 'matches', 'create-match', 'passport', 'dashboard'];
+    if (!user && PROTECTED.includes(page)) { setNav('login'); return; }
+    if (page === 'admin' && user?.role !== 'admin') { setNav('dashboard'); return; }
+    // Un admin reste sur sa partie admin — on bloque les pages joueurs ainsi que la landing.
+    const PLAYER_ONLY = [...PROTECTED, 'landing'];
+    if (user?.role === 'admin' && PLAYER_ONLY.includes(page)) {
+      setNav('admin');
+      return;
+    }
+    setNav(page);
+  };
+
+  const handleLogin = (u) => {
+    setUser(u);
+    AppStore.setCurrentUser(u);
+    setNav(u.role === 'admin' ? 'admin' : 'dashboard');
+  };
+
+  const handleLogout = () => {
+    Api.logout();      // supprime le token côté navigateur
+    setUser(null);
+    AppStore.setCurrentUser(null);
+    setNav('landing');
+  };
+
+  // Petit splash pendant la vérification du token
+  if (booting) {
+    return (
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'#6B7890', fontSize:14 }}>
+        Chargement…
+      </div>
+    );
+  }
+
+  const viewStyle = { flex:1, overflow:'hidden', display:'flex', flexDirection:'column' };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
+      <Header nav={nav} user={user} onNav={handleNav} onLogout={handleLogout} />
+      <div style={viewStyle}>
+        {nav === 'landing'      && <LandingView onNav={handleNav} user={user} />}
+        {nav === 'login'        && <LoginView onNav={handleNav} onLogin={handleLogin} />}
+        {nav === 'register'     && <RegisterView onNav={handleNav} onLogin={handleLogin} />}
+        {nav === 'booking'      && <BookingView onNav={handleNav} user={user} />}
+        {nav === 'matches'      && <MatchListView onNav={handleNav} user={user} />}
+        {nav === 'create-match' && <CreateMatchView onNav={handleNav} user={user} />}
+        {nav === 'passport'     && <PassportView user={user} onNav={handleNav} />}
+        {nav === 'dashboard'    && <DashboardView user={user} onNav={handleNav} onLogout={handleLogout} />}
+        {nav === 'admin'        && <AdminDashboard user={user} onNav={handleNav} onLogout={handleLogout} />}
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
