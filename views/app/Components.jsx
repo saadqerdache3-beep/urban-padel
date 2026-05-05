@@ -49,10 +49,10 @@ function Header({ nav, user, onNav }) {
     const mobileItems = user?.role === 'admin'
       ? [{ id:'admin', label:'Admin', icon:'⚙' }]
       : [
-          { id:'landing',    label:'Accueil',  icon:'⌂' },
-          { id:'matches',    label:'Matchs',   icon:'◉' },
-          { id:'booking',    label:'Réserver', icon:'▦' },
-          { id:'dashboard',  label:'Compte',   icon:'◈' },
+          { id:'landing',    label:'Accueil',   },
+          { id:'matches',    label:'Matchs',    },
+          { id:'booking',    label:'Réserver', },
+          { id:'dashboard',  label:'Compte',  },
         ];
 
     return (
